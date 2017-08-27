@@ -1,12 +1,14 @@
-// Copyright © 2013-2015 Esko Luontola <www.orfjackal.net>
+// Copyright © 2013-2017 Esko Luontola and other Retrolambda contributors
 // This software is released under the Apache License 2.0.
 // The license text is at http://www.apache.org/licenses/LICENSE-2.0
 
 package net.orfjackal.retrolambda;
 
+import com.esotericsoftware.minlog.Log;
 import net.orfjackal.retrolambda.files.*;
 import net.orfjackal.retrolambda.interfaces.*;
 import net.orfjackal.retrolambda.lambdas.*;
+import net.orfjackal.retrolambda.util.Bytecode;
 
 import java.io.IOException;
 import java.net.*;
@@ -20,25 +22,29 @@ public class Retrolambda {
         boolean defaultMethodsEnabled = config.isDefaultMethodsEnabled();
         Path inputDir = config.getInputDir();
         Path outputDir = config.getOutputDir();
-        String classpath = config.getClasspath();
+        List<Path> classpath = config.getClasspath();
         List<Path> includedFiles = config.getIncludedFiles();
-        System.out.println("Bytecode version: " + bytecodeVersion + " (" + config.getJavaVersion() + ")");
-        System.out.println("Default methods:  " + defaultMethodsEnabled);
-        System.out.println("Input directory:  " + inputDir);
-        System.out.println("Output directory: " + outputDir);
-        System.out.println("Classpath:        " + classpath);
-        if (includedFiles != null) {
-            System.out.println("Included files:   " + includedFiles.size());
+        if (config.isQuiet()) {
+            Log.WARN();
+        } else {
+            Log.INFO();
         }
+        Log.info("Bytecode version: " + bytecodeVersion + " (" + Bytecode.getJavaVersion(bytecodeVersion) + ")");
+        Log.info("Default methods:  " + defaultMethodsEnabled);
+        Log.info("Input directory:  " + inputDir);
+        Log.info("Output directory: " + outputDir);
+        Log.info("Classpath:        " + classpath);
+        Log.info("Included files:   " + (includedFiles != null ? includedFiles.size() : "all"));
+        Log.info("Agent enabled:    " + PreMain.isAgentLoaded());
 
         if (!Files.isDirectory(inputDir)) {
-            System.out.println("Nothing to do; not a directory: " + inputDir);
+            Log.info("Nothing to do; not a directory: " + inputDir);
             return;
         }
 
         Thread.currentThread().setContextClassLoader(new NonDelegatingClassLoader(asUrls(classpath)));
 
-        ClassHierarchyAnalyzer analyzer = new ClassHierarchyAnalyzer();
+        ClassAnalyzer analyzer = new ClassAnalyzer();
         OutputDirectory outputDirectory = new OutputDirectory(outputDir);
         Transformers transformers = new Transformers(bytecodeVersion, defaultMethodsEnabled, analyzer);
         LambdaClassSaver lambdaClassSaver = new LambdaClassSaver(outputDirectory, transformers);
@@ -92,10 +98,9 @@ public class Retrolambda {
         Files.walkFileTree(inputDir, visitor);
     }
 
-    private static URL[] asUrls(String classpath) {
-        String[] paths = classpath.split(System.getProperty("path.separator"));
-        return Arrays.asList(paths).stream()
-                .map(s -> Paths.get(s).toUri())
+    private static URL[] asUrls(List<Path> classpath) {
+        return classpath.stream()
+                .map(Path::toUri)
                 .map(Retrolambda::uriToUrl)
                 .toArray(URL[]::new);
     }

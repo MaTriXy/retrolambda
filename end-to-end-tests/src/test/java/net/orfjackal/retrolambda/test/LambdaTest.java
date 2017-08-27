@@ -1,9 +1,10 @@
-// Copyright © 2013-2015 Esko Luontola <www.orfjackal.net>
+// Copyright © 2013-2017 Esko Luontola and other Retrolambda contributors
 // This software is released under the Apache License 2.0.
 // The license text is at http://www.apache.org/licenses/LICENSE-2.0
 
 package net.orfjackal.retrolambda.test;
 
+import net.orfjackal.retrolambda.test.anotherpackage.DifferentPackageBase;
 import org.apache.commons.lang.SystemUtils;
 import org.junit.Test;
 import org.objectweb.asm.*;
@@ -110,12 +111,22 @@ public class LambdaTest extends SuperClass {
     }
 
     @Test
-    public void method_references_to_virtual_methods() throws Exception {
+    public void method_references_to_virtual_methods_on_local_variables() throws Exception {
         String foo = "foo";
         Callable<String> ref = foo::toUpperCase;
 
         assertThat(ref.call(), is("FOO"));
     }
+
+    @Test
+    public void method_references_to_virtual_methods_on_instance_variables() throws Exception {
+        Callable<String> ref = instanceVarFoo::toUpperCase;
+
+        assertThat(ref.call(), is("FOO"));
+    }
+
+    @SuppressWarnings("FieldCanBeLocal")
+    private String instanceVarFoo = "foo";
 
     @Test
     public void method_references_to_interface_methods() throws Exception {
@@ -138,6 +149,27 @@ public class LambdaTest extends SuperClass {
         Callable<List<String>> ref = ArrayList<String>::new;
 
         assertThat(ref.call(), is(instanceOf(ArrayList.class)));
+    }
+
+    @Test
+    public void method_references_to_protected_supertype_methods() throws Exception {
+        Callable<String> ref1 = new SubclassInMyPackage().thing();
+        assertThat(ref1.call(), equalTo("Hello"));
+
+        Callable<String> ref2 = new SubclassInSamePackage().thing();
+        assertThat(ref2.call(), equalTo("Hello"));
+    }
+
+    public static class SubclassInMyPackage extends DifferentPackageBase {
+        public Callable<String> thing() {
+            return DifferentPackageBase::value;
+        }
+    }
+
+    public static class SubclassInSamePackage extends SamePackageBase {
+        public Callable<String> thing() {
+            return SamePackageBase::value;
+        }
     }
 
     /**
@@ -215,6 +247,17 @@ public class LambdaTest extends SuperClass {
         return "foo";
     }
 
+
+    @Test
+    public void enclosing_method_of_anonymous_class_inside_lambda_expression() throws Exception {
+        Callable<Object> lambda = () -> new Object() {
+        };
+        Class<?> anonymousClass = lambda.call().getClass();
+
+        assertThat(anonymousClass.getEnclosingMethod().getName(),
+                startsWith("lambda$enclosing_method_of_anonymous_class_inside_lambda_expression$"));
+    }
+
     /**
      * We could make private lambda implementation methods package-private,
      * so that the lambda class may call them, but we should not make any
@@ -276,29 +319,59 @@ public class LambdaTest extends SuperClass {
         assertThat(child.parentRef().call(), is("parent version"));
     }
 
+    /**
+     * If the lambda impl method is generated as a private instance method,
+     * we cannot just make it package-private for the lambda class to call them,
+     * because a subclass may override the lambda by overriding its enclosing method
+     * and declaring another lambda expression there.
+     */
+    @Test
+    public void will_not_cause_lambda_expressions_to_be_overridable() {
+        List<String> spy = new ArrayList<>();
+        class Parent {
+            @SuppressWarnings("unused")
+            private int i;
+
+            public void foo() {
+                Runnable lambda = () -> { // generates a private "lambda$foo$0" method
+                    i++; // causes this lambda to be generated as an instance method
+                    spy.add("parent");
+                };
+                lambda.run();
+            }
+        }
+        class Child extends Parent {
+            @SuppressWarnings("unused")
+            private int i;
+
+            @Override
+            public void foo() {
+                super.foo();
+                Runnable lambda = () -> { // generates a private "lambda$foo$0" method
+                    i++; // causes this lambda to be generated as an instance method
+                    spy.add("child");
+                };
+                lambda.run();
+            }
+        }
+
+        Child c = new Child();
+        c.foo();
+
+        assertThat(spy, is(Arrays.asList("parent", "child")));
+    }
+
     @Test
     public void bytecode_constant_pool_will_not_contain_dangling_references_to_MethodHandles() throws IOException {
         assumeThat(SystemUtils.JAVA_VERSION_FLOAT, is(lessThan(1.7f)));
 
         ClassReader cr = new ClassReader(getClass().getName().replace('.', '/'));
-        char[] buf = new char[cr.getMaxStringLength()];
-
-        for (int item = 0; item < cr.getItemCount(); item++) {
-            Object constant = readConstant(item, buf, cr);
+        TestUtil.visitConstantPool(cr, (item, constant) -> {
             if (constant instanceof Type) {
                 Type type = (Type) constant;
                 assertThat("constant #" + item, type.getDescriptor(), not(containsString("java/lang/invoke")));
             }
-        }
-    }
-
-    private static Object readConstant(int item, char[] buf, ClassReader cr) {
-        try {
-            return cr.readConst(item, buf);
-        } catch (Exception e) {
-            // XXX: constant pool entry which is a Methodref, InvokeDynamic or similar non-plain constant
-            return null;
-        }
+        });
     }
 }
 

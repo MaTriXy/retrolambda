@@ -1,10 +1,11 @@
-// Copyright © 2013-2015 Esko Luontola <www.orfjackal.net>
+// Copyright © 2013-2017 Esko Luontola and other Retrolambda contributors
 // This software is released under the Apache License 2.0.
 // The license text is at http://www.apache.org/licenses/LICENSE-2.0
 
 package net.orfjackal.retrolambda.lambdas;
 
 import org.objectweb.asm.*;
+import org.objectweb.asm.tree.*;
 
 import static org.objectweb.asm.Opcodes.*;
 
@@ -45,9 +46,13 @@ public class BackportLambdaClass extends ClassVisitor {
         if (LambdaNaming.isSerializationHook(access, name, desc)) {
             return null; // remove serialization hooks; we serialize lambda instances as-is
         }
+        if (LambdaNaming.isPlatformFactoryMethod(access, name, desc, factoryMethod.getDesc())) {
+            return null; // remove the JVM's factory method which will not be unused
+        }
         MethodVisitor next = super.visitMethod(access, name, desc, signature, exceptions);
+        next = new RemoveLambdaFormHiddenAnnotation(next);
         next = new RemoveMagicLambdaConstructorCall(next);
-        next = new CallPrivateImplMethodsViaAccessMethods(next);
+        next = new CallPrivateImplMethodsViaAccessMethods(access, name, desc, signature, exceptions, next);
         return next;
     }
 
@@ -128,10 +133,13 @@ public class BackportLambdaClass extends ClassVisitor {
         }
     }
 
-    private class CallPrivateImplMethodsViaAccessMethods extends MethodVisitor {
+    private class CallPrivateImplMethodsViaAccessMethods extends MethodNode {
+        private final MethodVisitor next;
 
-        public CallPrivateImplMethodsViaAccessMethods(MethodVisitor next) {
-            super(ASM5, next);
+        public CallPrivateImplMethodsViaAccessMethods(int access, String name, String desc, String signature,
+                                                      String[] exceptions, MethodVisitor next) {
+            super(ASM5, access, name, desc, signature, exceptions);
+            this.next = next;
         }
 
         @Override
@@ -143,30 +151,45 @@ public class BackportLambdaClass extends ClassVisitor {
             if (owner.equals(implMethod.getOwner())
                     && name.equals(implMethod.getName())
                     && desc.equals(implMethod.getDesc())) {
+
+                if (implMethod.getTag() == H_NEWINVOKESPECIAL
+                        && accessMethod.getTag() == H_INVOKESTATIC) {
+                    // The impl is a private constructor which is called through an access method.
+                    // The current method already did NEW an instance, but we won't use it because
+                    // the access method will also instantiate it. The JVM would be OK with a non-empty
+                    // stack on ARETURN, but it causes a VerifyError on Android, so here we remove the
+                    // unused instance from the stack.
+                    boolean found = false;
+                    for (int i = instructions.size() - 1; i >= 1; i--) {
+                        AbstractInsnNode maybeNew = instructions.get(i - 1);
+                        AbstractInsnNode maybeDup = instructions.get(i);
+                        if (maybeNew.getOpcode() == NEW && maybeDup.getOpcode() == DUP) {
+                            instructions.remove(maybeNew);
+                            instructions.remove(maybeDup);
+                            found = true;
+                            break;
+                        }
+                    }
+                    if (!found) {
+                        throw new IllegalStateException(
+                                "Expected to find NEW, DUP instructions preceding NEWINVOKESPECIAL. Please file this as a bug.");
+                    }
+                }
+
                 super.visitMethodInsn(
                         Handles.getOpcode(accessMethod),
                         accessMethod.getOwner(),
                         accessMethod.getName(),
                         accessMethod.getDesc(),
                         accessMethod.getTag() == H_INVOKEINTERFACE);
-
-                if (implMethod.getTag() == H_NEWINVOKESPECIAL
-                        && accessMethod.getTag() == H_INVOKESTATIC) {
-                    // The impl is a private constructor which is called through an access method.
-                    // XXX: The current method already did NEW an instance, but we won't use it because
-                    // the access method will also instantiate it.
-                    // - The JVM would be OK with a non-empty stack on ARETURN, but it causes a VerifyError
-                    //   on Android, so here we remove the unused instance from the stack.
-                    // - We could improve this backporter so that it would remove the unnecessary
-                    //   "NEW, DUP" instructions, but that would be complicated.
-                    super.visitVarInsn(ASTORE, 1);
-                    super.visitInsn(POP);
-                    super.visitInsn(POP);
-                    super.visitVarInsn(ALOAD, 1);
-                }
             } else {
                 super.visitMethodInsn(opcode, owner, name, desc, itf);
             }
+        }
+
+        @Override
+        public void visitEnd() {
+            accept(next);
         }
     }
 }

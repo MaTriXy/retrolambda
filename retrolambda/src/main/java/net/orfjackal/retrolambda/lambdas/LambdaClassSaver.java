@@ -1,12 +1,15 @@
-// Copyright © 2013-2015 Esko Luontola <www.orfjackal.net>
+// Copyright © 2013-2017 Esko Luontola and other Retrolambda contributors
 // This software is released under the Apache License 2.0.
 // The license text is at http://www.apache.org/licenses/LICENSE-2.0
 
 package net.orfjackal.retrolambda.lambdas;
 
+import com.esotericsoftware.minlog.Log;
 import net.orfjackal.retrolambda.Transformers;
 import net.orfjackal.retrolambda.files.OutputDirectory;
 import org.objectweb.asm.ClassReader;
+
+import java.io.IOException;
 
 public class LambdaClassSaver {
 
@@ -25,14 +28,12 @@ public class LambdaClassSaver {
     }
 
     private void reifyLambdaClass(String className, byte[] bytecode) {
+        Log.info("Saving lambda class: " + className);
+        bytecode = transformers.backportLambdaClass(new ClassReader(bytecode));
         try {
-            System.out.println("Saving lambda class: " + className);
-            saver.writeClass(transformers.backportLambdaClass(new ClassReader(bytecode)));
-
-        } catch (Throwable t) {
-            // print to stdout to keep in sync with other log output
-            System.out.println("ERROR: Failed to backport lambda class: " + className);
-            t.printStackTrace(System.out);
+            saver.writeClass(bytecode);
+        } catch (IOException e) {
+            throw new RuntimeException(e);
         }
     }
 }

@@ -31,4 +31,18 @@ public class LambdaNaming {
                 && desc.equals("(Ljava/lang/invoke/SerializedLambda;)Ljava/lang/Object;")
                 && Flags.hasFlag(access, ACC_PRIVATE | ACC_STATIC | ACC_SYNTHETIC);
     }
+
+    public static boolean isPlatformFactoryMethod(int access, String name, String desc, String targetDesc) {
+        return name.equals("get$Lambda")
+                && desc.equals(targetDesc)
+                && Flags.hasFlag(access, ACC_PRIVATE | ACC_STATIC);
+    }
+
+    public static boolean isBodyMethodName(String name) {
+        return name.startsWith("lambda$");
+    }
+
+    public static boolean isBodyMethod(int access, String name) {
+        return isBodyMethodName(name) && Flags.hasFlag(access, ACC_SYNTHETIC);
+    }
 }

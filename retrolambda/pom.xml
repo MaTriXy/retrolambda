@@ -6,7 +6,7 @@
     <parent>
         <groupId>net.orfjackal.retrolambda</groupId>
         <artifactId>parent</artifactId>
-        <version>2.0.7-SNAPSHOT</version>
+        <version>2.5.2-SNAPSHOT</version>
         <relativePath>../parent/pom.xml</relativePath>
     </parent>
 
@@ -23,6 +23,11 @@
         <dependency>
             <groupId>com.google.guava</groupId>
             <artifactId>guava</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>com.esotericsoftware</groupId>
+            <artifactId>minlog</artifactId>
         </dependency>
 
     </dependencies>
@@ -64,7 +69,7 @@
                                     <arg value="-Dretrolambda.bytecodeVersion=50"/>
                                     <arg value="-Dretrolambda.inputDir=${project.build.outputDirectory}"/>
                                     <arg value="-Dretrolambda.classpath=${compile_classpath}"/>
-                                    <arg value="-Dretrolambda.includedFiles=${project.build.outputDirectory}/net/orfjackal/retrolambda/Main.class${path.separator}${project.build.outputDirectory}/net/orfjackal/retrolambda/Config.class${path.separator}${project.build.outputDirectory}/net/orfjackal/retrolambda/Retrolambda.class"/>
+                                    <arg value="-Dretrolambda.includedFiles=${project.build.outputDirectory}/net/orfjackal/retrolambda/Main.class${path.separator}${project.build.outputDirectory}/net/orfjackal/retrolambda/Config.class${path.separator}${project.build.outputDirectory}/net/orfjackal/retrolambda/SystemPropertiesConfig.class${path.separator}${project.build.outputDirectory}/net/orfjackal/retrolambda/Retrolambda.class"/>
                                     <arg value="-cp"/>
                                     <arg value="${project.build.outputDirectory}"/>
                                     <arg value="-cp"/>
@@ -99,6 +104,10 @@
                             <pattern>com.google</pattern>
                             <shadedPattern>net.orfjackal.retrolambda.google</shadedPattern>
                         </relocation>
+                        <relocation>
+                            <pattern>com.esotericsoftware.minlog</pattern>
+                            <shadedPattern>net.orfjackal.retrolambda.minlog</shadedPattern>
+                        </relocation>
                     </relocations>
                     <filters>
                         <filter>
@@ -111,6 +120,12 @@
                         </filter>
                         <filter>
                             <artifact>com.google.guava:guava</artifact>
+                            <excludes>
+                                <exclude>META-INF/**</exclude>
+                            </excludes>
+                        </filter>
+                        <filter>
+                            <artifact>com.esotericsoftware:minlog</artifact>
                             <excludes>
                                 <exclude>META-INF/**</exclude>
                             </excludes>

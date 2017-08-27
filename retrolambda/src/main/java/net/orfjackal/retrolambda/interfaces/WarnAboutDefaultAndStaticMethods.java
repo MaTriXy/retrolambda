@@ -1,13 +1,13 @@
-// Copyright © 2013-2015 Esko Luontola <www.orfjackal.net>
+// Copyright © 2013-2017 Esko Luontola and other Retrolambda contributors
 // This software is released under the Apache License 2.0.
 // The license text is at http://www.apache.org/licenses/LICENSE-2.0
 
 package net.orfjackal.retrolambda.interfaces;
 
-import net.orfjackal.retrolambda.util.Flags;
+import com.esotericsoftware.minlog.Log;
 import org.objectweb.asm.*;
 
-import static org.objectweb.asm.Opcodes.*;
+import static net.orfjackal.retrolambda.util.Flags.*;
 
 public class WarnAboutDefaultAndStaticMethods extends ClassVisitor {
 
@@ -19,7 +19,7 @@ public class WarnAboutDefaultAndStaticMethods extends ClassVisitor {
 
     @Override
     public void visit(int version, int access, String name, String signature, String superName, String[] interfaces) {
-        if (!Flags.hasFlag(access, ACC_INTERFACE)) {
+        if (!isInterface(access)) {
             throw new IllegalArgumentException(name + " is not an interface");
         }
         interfaceName = name;
@@ -33,14 +33,14 @@ public class WarnAboutDefaultAndStaticMethods extends ClassVisitor {
         // - static methods
         // - bridge methods
         // Allowed by Java 7:
-        // - class initializer methods (for initializing constants)
-        if (Flags.hasFlag(access, ACC_STATIC)) {
-            if (!Flags.isClassInitializer(name, desc, access) &&
+        // - static initialization blocks (for initializing constants)
+        if (isStaticMethod(access)) {
+            if (!isStaticInitializer(name, desc, access) &&
                     !name.startsWith("lambda$")) {
                 printWarning("a static method", name);
             }
         } else {
-            if (!Flags.hasFlag(access, ACC_ABSTRACT)) {
+            if (!isAbstractMethod(access)) {
                 printWarning("a default method", name);
             }
         }
@@ -48,7 +48,7 @@ public class WarnAboutDefaultAndStaticMethods extends ClassVisitor {
     }
 
     private void printWarning(String methodKind, String methodName) {
-        System.out.println("WARNING: The interface " + interfaceName + " has " + methodKind + " \"" + methodName + "\" " +
+        Log.warn("The interface " + interfaceName + " has " + methodKind + " \"" + methodName + "\" " +
                 "but backporting default methods is not enabled");
     }
 }

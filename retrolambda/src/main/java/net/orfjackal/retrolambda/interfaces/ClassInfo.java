@@ -9,8 +9,6 @@ import org.objectweb.asm.*;
 
 import java.util.*;
 
-import static org.objectweb.asm.Opcodes.ACC_INTERFACE;
-
 public class ClassInfo {
 
     public final ClassReader reader;
@@ -32,7 +30,7 @@ public class ClassInfo {
         this.reader = cr;
         this.access = cr.getAccess();
         this.type = Type.getObjectType(cr.getClassName());
-        this.superclass = Type.getObjectType(cr.getSuperName());
+        this.superclass = cr.getSuperName() != null ? Type.getObjectType(cr.getSuperName()) : null;
         for (String iface : cr.getInterfaces()) {
             this.interfaces.add(Type.getObjectType(iface));
         }
@@ -46,8 +44,8 @@ public class ClassInfo {
         return Collections.unmodifiableList(methods);
     }
 
-    public void addMethod(MethodRef method, MethodKind kind) {
-        methods.add(new MethodInfo(method.tag, method.getSignature(), Type.getObjectType(method.owner), kind));
+    public void addMethod(int access, MethodRef method, MethodKind kind) {
+        methods.add(new MethodInfo(access, method.tag, method.getSignature(), Type.getObjectType(method.owner), kind));
     }
 
     public Optional<Type> getCompanionClass() {
@@ -63,6 +61,6 @@ public class ClassInfo {
     }
 
     public boolean isInterface() {
-        return Flags.hasFlag(access, ACC_INTERFACE);
+        return Flags.isInterface(access);
     }
 }

@@ -1,22 +1,25 @@
-// Copyright © 2013-2015 Esko Luontola <www.orfjackal.net>
+// Copyright © 2013-2017 Esko Luontola and other Retrolambda contributors
 // This software is released under the Apache License 2.0.
 // The license text is at http://www.apache.org/licenses/LICENSE-2.0
 
-package net.orfjackal.retrolambda.interfaces;
+package net.orfjackal.retrolambda;
 
-import net.orfjackal.retrolambda.lambdas.Handles;
+import net.orfjackal.retrolambda.interfaces.*;
+import net.orfjackal.retrolambda.lambdas.*;
 import net.orfjackal.retrolambda.util.*;
 import org.objectweb.asm.*;
 
 import java.util.*;
 
 import static java.util.stream.Collectors.toList;
+import static net.orfjackal.retrolambda.util.Flags.*;
 import static org.objectweb.asm.Opcodes.*;
 
-public class ClassHierarchyAnalyzer {
+public class ClassAnalyzer {
 
     private final Map<Type, ClassInfo> classes = new HashMap<>();
     private final Map<MethodRef, MethodRef> relocatedMethods = new HashMap<>();
+    private final Map<MethodRef, MethodRef> renamedLambdaMethods = new HashMap<>();
 
     public void analyze(byte[] bytecode) {
         analyze(new ClassReader(bytecode));
@@ -26,11 +29,12 @@ public class ClassHierarchyAnalyzer {
         ClassInfo c = new ClassInfo(cr);
         classes.put(c.type, c);
 
-        if (Flags.hasFlag(cr.getAccess(), ACC_INTERFACE)) {
+        if (isInterface(cr.getAccess())) {
             analyzeInterface(c, cr);
         } else {
             analyzeClass(c, cr);
         }
+        analyzeClassOrInterface(c, cr);
     }
 
     private void analyzeClass(ClassInfo c, ClassReader cr) {
@@ -44,10 +48,16 @@ public class ClassHierarchyAnalyzer {
 
             @Override
             public MethodVisitor visitMethod(int access, String name, String desc, String signature, String[] exceptions) {
-                if (isConstructor(name) || isStaticMethod(access)) {
-                    return null;
+                int tag;
+                if (isConstructor(name)) {
+                    tag = H_INVOKESPECIAL;
+                } else if (isStaticMethod(access)) {
+                    tag = H_INVOKESTATIC;
+                } else {
+                    tag = H_INVOKEVIRTUAL;
                 }
-                c.addMethod(new MethodRef(H_INVOKEVIRTUAL, owner, name, desc), new MethodKind.Implemented());
+
+                c.addMethod(access, new MethodRef(tag, owner, name, desc), new MethodKind.Implemented());
                 return null;
             }
 
@@ -70,18 +80,18 @@ public class ClassHierarchyAnalyzer {
                 MethodRef method = new MethodRef(Handles.accessToTag(access, true), owner, name, desc);
 
                 if (isAbstractMethod(access)) {
-                    c.addMethod(method, new MethodKind.Abstract());
+                    c.addMethod(access, method, new MethodKind.Abstract());
 
                 } else if (isDefaultMethod(access)) {
                     MethodRef defaultImpl = new MethodRef(H_INVOKESTATIC, companion, name, Bytecode.prependArgumentType(desc, Type.getObjectType(owner)));
                     c.enableCompanionClass();
-                    c.addMethod(method, new MethodKind.Default(defaultImpl));
+                    c.addMethod(access, method, new MethodKind.Default(defaultImpl));
 
                 } else if (isInstanceLambdaImplMethod(access)) {
                     relocatedMethods.put(method, new MethodRef(H_INVOKESTATIC, companion, name, Bytecode.prependArgumentType(desc, Type.getObjectType(owner))));
                     c.enableCompanionClass();
 
-                } else if (isStaticMethod(access)) {
+                } else if (isStaticMethod(access) && !isStaticInitializer(name, desc, access)) {
                     relocatedMethods.put(method, new MethodRef(H_INVOKESTATIC, companion, name, desc));
                     c.enableCompanionClass();
                 }
@@ -90,16 +100,30 @@ public class ClassHierarchyAnalyzer {
         }, ClassReader.SKIP_CODE);
     }
 
-    private static boolean isConstructor(String name) {
-        return name.equals("<init>");
-    }
+    private void analyzeClassOrInterface(ClassInfo c, ClassReader cr) {
+        cr.accept(new ClassVisitor(ASM5) {
+            private String owner;
 
-    private static boolean isAbstractMethod(int access) {
-        return Flags.hasFlag(access, ACC_ABSTRACT);
-    }
+            @Override
+            public void visit(int version, int access, String name, String signature, String superName, String[] interfaces) {
+                this.owner = name;
+            }
 
-    private static boolean isStaticMethod(int access) {
-        return Flags.hasFlag(access, ACC_STATIC);
+            @Override
+            public MethodVisitor visitMethod(int access, String name, String desc, String signature, String[] exceptions) {
+                MethodRef method = new MethodRef(Handles.accessToTag(access, true), owner, name, desc);
+
+                // XXX: duplicates code in net.orfjackal.retrolambda.lambdas.BackportLambdaInvocations.visitMethod()
+                if (LambdaNaming.isBodyMethod(access, name)
+                        && Flags.isPrivateMethod(access)
+                        && Flags.isInstanceMethod(access)) {
+                    desc = Types.prependArgumentType(Type.getObjectType(owner), desc); // add 'this' as first parameter
+                    renamedLambdaMethods.put(method, new MethodRef(H_INVOKESTATIC, owner, name, desc));
+                }
+
+                return null;
+            }
+        }, ClassReader.SKIP_CODE);
     }
 
     private static boolean isDefaultMethod(int access) {
@@ -112,14 +136,6 @@ public class ClassHierarchyAnalyzer {
         return !isAbstractMethod(access)
                 && !isStaticMethod(access)
                 && isPrivateMethod(access);
-    }
-
-    private static boolean isPublicMethod(int access) {
-        return Flags.hasFlag(access, ACC_PUBLIC);
-    }
-
-    private static boolean isPrivateMethod(int access) {
-        return Flags.hasFlag(access, ACC_PRIVATE);
     }
 
     public List<ClassInfo> getInterfaces() {
@@ -149,6 +165,10 @@ public class ClassHierarchyAnalyzer {
             }
         }
         return relocatedMethods.getOrDefault(original, original);
+    }
+
+    public MethodRef getRenamedLambdaMethod(MethodRef original) {
+        return renamedLambdaMethods.getOrDefault(original, original);
     }
 
     public MethodRef getMethodDefaultImplementation(MethodRef interfaceMethod) {
