@@ -11,18 +11,9 @@ import java.nio.file.*;
 import java.util.*;
 import java.util.stream.*;
 
-public class SystemPropertiesConfig implements Config {
+import static net.orfjackal.retrolambda.api.RetrolambdaApi.*;
 
-    private static final String PREFIX = "retrolambda.";
-    public static final String BYTECODE_VERSION = PREFIX + "bytecodeVersion";
-    public static final String DEFAULT_METHODS = PREFIX + "defaultMethods";
-    public static final String INPUT_DIR = PREFIX + "inputDir";
-    public static final String OUTPUT_DIR = PREFIX + "outputDir";
-    public static final String CLASSPATH = PREFIX + "classpath";
-    public static final String CLASSPATH_FILE = CLASSPATH + "File";
-    public static final String INCLUDED_FILES = PREFIX + "includedFiles";
-    public static final String INCLUDED_FILES_FILE = INCLUDED_FILES + "File";
-    public static final String QUIET = PREFIX + "quiet";
+public class SystemPropertiesConfig implements Config {
 
     private static final List<String> requiredProperties = new ArrayList<>();
     private static final Map<String, String> alternativeProperties = new HashMap<>();
@@ -200,6 +191,21 @@ public class SystemPropertiesConfig implements Config {
     }
 
 
+    // useJavac8ReadLabelHack
+
+    static {
+        optionalParameterHelp(JAVAC_HACKS,
+                "Attempts to fix javac bugs (type-annotation emission for local variables).",
+                "Disabled by default. Enable by setting to \"true\"");
+
+    }
+
+    @Override
+    public boolean isJavacHacksEnabled() {
+        return Boolean.parseBoolean(p.getProperty(JAVAC_HACKS, "false"));
+    }
+
+
     // quiet
 
     static {
@@ -226,7 +232,7 @@ public class SystemPropertiesConfig implements Config {
                 "\n" +
                 "Retrolambda takes Java 8 classes and backports lambda expressions and\n" +
                 "some other language features to work on Java 7, 6 or 5.\n" +
-                "Web site: https://github.com/orfjackal/retrolambda\n" +
+                "Web site: https://github.com/luontola/retrolambda\n" +
                 "\n" +
                 "Copyright (c) 2013-2017  Esko Luontola and other Retrolambda contributors\n" +
                 "This software is released under the Apache License 2.0.\n" +
